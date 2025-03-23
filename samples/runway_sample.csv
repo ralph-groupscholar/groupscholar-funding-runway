@@ -1,0 +1,49 @@
+date,amount,type,category,restricted
+2025-01-03,85000,inflow,Multi-year Grant,true
+2025-01-10,12000,outflow,Scholar Stipends,false
+2025-01-15,7000,outflow,Program Travel,false
+2025-01-22,18000,outflow,Operations,false
+2025-02-05,54000,inflow,Corporate Match,true
+2025-02-09,13000,outflow,Scholar Stipends,false
+2025-02-19,9000,outflow,Program Delivery,false
+2025-02-24,6000,outflow,Technology,false
+2025-03-04,60000,inflow,Foundation Grant,true
+2025-03-09,14000,outflow,Scholar Stipends,false
+2025-03-15,8000,outflow,Program Delivery,false
+2025-03-25,5000,outflow,Staffing,false
+2025-04-02,12000,inflow,Individual Donors,false
+2025-04-10,15000,outflow,Scholar Stipends,false
+2025-04-18,11000,outflow,Program Delivery,false
+2025-04-22,9000,outflow,Operations,false
+2025-05-06,10000,inflow,Corporate Match,false
+2025-05-11,15500,outflow,Scholar Stipends,false
+2025-05-17,7500,outflow,Program Delivery,false
+2025-05-28,6200,outflow,Technology,false
+2025-06-03,50000,inflow,Foundation Grant,true
+2025-06-08,16000,outflow,Scholar Stipends,false
+2025-06-14,7800,outflow,Program Delivery,false
+2025-06-25,9400,outflow,Operations,false
+2025-07-02,15000,inflow,Individual Donors,false
+2025-07-09,16500,outflow,Scholar Stipends,false
+2025-07-16,8200,outflow,Program Delivery,false
+2025-07-21,7000,outflow,Staffing,false
+2025-08-05,20000,inflow,Corporate Match,false
+2025-08-12,17000,outflow,Scholar Stipends,false
+2025-08-17,8800,outflow,Program Delivery,false
+2025-08-24,5200,outflow,Technology,false
+2025-09-01,65000,inflow,Foundation Grant,true
+2025-09-10,17500,outflow,Scholar Stipends,false
+2025-09-19,9100,outflow,Program Delivery,false
+2025-09-27,8800,outflow,Operations,false
+2025-10-03,18000,inflow,Individual Donors,false
+2025-10-11,18000,outflow,Scholar Stipends,false
+2025-10-16,9500,outflow,Program Delivery,false
+2025-10-25,7200,outflow,Staffing,false
+2025-11-04,22000,inflow,Corporate Match,false
+2025-11-12,18500,outflow,Scholar Stipends,false
+2025-11-18,9800,outflow,Program Delivery,false
+2025-11-26,6100,outflow,Technology,false
+2025-12-02,72000,inflow,Foundation Grant,true
+2025-12-09,19000,outflow,Scholar Stipends,false
+2025-12-17,10500,outflow,Program Delivery,false
+2025-12-23,9300,outflow,Operations,false

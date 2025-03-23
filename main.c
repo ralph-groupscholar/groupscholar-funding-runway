@@ -41,15 +41,18 @@ typedef struct {
 } CategoryList;
 
 static void trim(char *s) {
-  char *end;
-  while (isspace((unsigned char)*s)) s++;
-  if (*s == 0) {
-    *s = 0;
+  char *start = s;
+  while (isspace((unsigned char)*start)) start++;
+  if (*start == '\0') {
+    *s = '\0';
     return;
   }
-  end = s + strlen(s) - 1;
+  if (start != s) {
+    memmove(s, start, strlen(start) + 1);
+  }
+  char *end = s + strlen(s) - 1;
   while (end > s && isspace((unsigned char)*end)) end--;
-  *(end + 1) = 0;
+  *(end + 1) = '\0';
 }
 
 static void normalize_key(const char *src, char *dst, size_t dst_len) {
@@ -223,17 +226,57 @@ static void print_usage() {
   printf("  --starting-cash AMOUNT  Starting available cash balance\n");
   printf("  --reserved-cash AMOUNT  Reserved/restricted cash to exclude from runway\n");
   printf("  --window MONTHS         Use last N months for average burn calculation\n");
+  printf("  --as-of YYYY-MM         Ignore transactions after a given month\n");
   printf("  --json PATH             Write JSON report to PATH\n");
   printf("  --help                  Show this help\n");
 }
 
 static double parse_amount(const char *value, int *ok) {
-  char *endptr;
-  double amt = strtod(value, &endptr);
-  if (endptr == value) {
+  char buf[64];
+  size_t j = 0;
+  int negative = 0;
+  int saw_digit = 0;
+
+  for (size_t i = 0; value[i] != '\0' && j + 1 < sizeof(buf); i++) {
+    char c = value[i];
+    if (c == '(') {
+      negative = 1;
+      continue;
+    }
+    if (c == ')') {
+      continue;
+    }
+    if (c == '-') {
+      negative = 1;
+      continue;
+    }
+    if (c == '+' || c == '$' || c == ',' || isspace((unsigned char)c)) {
+      continue;
+    }
+    if (isdigit((unsigned char)c) || c == '.') {
+      buf[j++] = c;
+      if (isdigit((unsigned char)c)) {
+        saw_digit = 1;
+      }
+    }
+  }
+
+  buf[j] = '\0';
+  if (!saw_digit) {
     *ok = 0;
-  } else {
-    *ok = 1;
+    return 0.0;
+  }
+
+  char *endptr;
+  double amt = strtod(buf, &endptr);
+  if (endptr == buf) {
+    *ok = 0;
+    return 0.0;
+  }
+
+  *ok = 1;
+  if (negative) {
+    amt = -amt;
   }
   return amt;
 }
@@ -244,16 +287,40 @@ int main(int argc, char **argv) {
   double starting_cash = 0.0;
   double reserved_cash = 0.0;
   int window_months = 0;
+  char as_of[8] = "";
+  int starting_cash_set = 0;
 
   for (int i = 1; i < argc; i++) {
     if (strcmp(argv[i], "--file") == 0 && i + 1 < argc) {
       file_path = argv[++i];
     } else if (strcmp(argv[i], "--starting-cash") == 0 && i + 1 < argc) {
-      starting_cash = atof(argv[++i]);
+      int ok = 0;
+      starting_cash = parse_amount(argv[++i], &ok);
+      if (!ok) {
+        fprintf(stderr, "Invalid starting cash amount.\n");
+        return 1;
+      }
+      starting_cash_set = 1;
     } else if (strcmp(argv[i], "--reserved-cash") == 0 && i + 1 < argc) {
-      reserved_cash = atof(argv[++i]);
+      int ok = 0;
+      reserved_cash = parse_amount(argv[++i], &ok);
+      if (!ok) {
+        fprintf(stderr, "Invalid reserved cash amount.\n");
+        return 1;
+      }
     } else if (strcmp(argv[i], "--window") == 0 && i + 1 < argc) {
       window_months = atoi(argv[++i]);
+    } else if (strcmp(argv[i], "--as-of") == 0 && i + 1 < argc) {
+      const char *value = argv[++i];
+      if (strlen(value) != 7 || value[4] != '-' || !isdigit((unsigned char)value[0]) ||
+          !isdigit((unsigned char)value[1]) || !isdigit((unsigned char)value[2]) ||
+          !isdigit((unsigned char)value[3]) || !isdigit((unsigned char)value[5]) ||
+          !isdigit((unsigned char)value[6])) {
+        fprintf(stderr, "Invalid --as-of value. Use YYYY-MM.\n");
+        return 1;
+      }
+      strncpy(as_of, value, sizeof(as_of) - 1);
+      as_of[7] = '\0';
     } else if (strcmp(argv[i], "--json") == 0 && i + 1 < argc) {
       json_path = argv[++i];
     } else if (strcmp(argv[i], "--help") == 0) {
@@ -266,7 +333,7 @@ int main(int argc, char **argv) {
     }
   }
 
-  if (!file_path || starting_cash == 0.0) {
+  if (!file_path || !starting_cash_set) {
     print_usage();
     return 1;
   }
@@ -340,6 +407,11 @@ int main(int argc, char **argv) {
     strncpy(month, date, 7);
     month[7] = '\0';
 
+    if (as_of[0] != '\0' && strcmp(month, as_of) > 0) {
+      skipped++;
+      continue;
+    }
+
     const char *type = fields[idx_type];
     int is_inflow = 0;
     if (is_inflow_type(type)) {
@@ -390,8 +462,12 @@ int main(int argc, char **argv) {
 
   double burn_total = 0.0;
   int burn_count = 0;
+  double net_total = 0.0;
+  int net_count = 0;
   for (size_t i = month_start; i < months.count; i++) {
     double month_net = months.items[i].inflow - months.items[i].outflow;
+    net_total += month_net;
+    net_count++;
     if (month_net < 0) {
       burn_total += -month_net;
       burn_count++;
@@ -399,6 +475,7 @@ int main(int argc, char **argv) {
   }
 
   double avg_burn = burn_count > 0 ? burn_total / burn_count : 0.0;
+  double avg_net = net_count > 0 ? net_total / net_count : 0.0;
   double runway_months = avg_burn > 0 ? available_cash / avg_burn : 0.0;
 
   printf("Group Scholar Funding Runway\n");
@@ -407,9 +484,11 @@ int main(int argc, char **argv) {
   printf("Starting cash: $%.2f | Reserved cash: $%.2f | Available: $%.2f\n", starting_cash, reserved_cash, available_cash);
   if (avg_burn > 0) {
     printf("Average monthly burn (negative net): $%.2f across %d months\n", avg_burn, burn_count);
+    printf("Average monthly net: $%.2f across %d months\n", avg_net, net_count);
     printf("Estimated runway: %.1f months\n", runway_months);
   } else {
     printf("Average monthly burn: $0.00 (no negative net months)\n");
+    printf("Average monthly net: $%.2f across %d months\n", avg_net, net_count);
     printf("Estimated runway: Not at risk based on current net flow\n");
   }
   if (total_restricted > 0) {
@@ -450,10 +529,16 @@ int main(int argc, char **argv) {
       fprintf(out, "    \"reserved\": %.2f,\n", reserved_cash);
       fprintf(out, "    \"available\": %.2f\n", available_cash);
       fprintf(out, "  },\n");
+      fprintf(out, "  \"as_of\": \"%s\",\n", as_of[0] ? as_of : "");
+      fprintf(out, "  \"window_months\": %d,\n", window_months);
       fprintf(out, "  \"burn\": {\n");
       fprintf(out, "    \"average_monthly\": %.2f,\n", avg_burn);
       fprintf(out, "    \"months_used\": %d,\n", burn_count);
       fprintf(out, "    \"estimated_runway_months\": %.2f\n", runway_months);
+      fprintf(out, "  },\n");
+      fprintf(out, "  \"net\": {\n");
+      fprintf(out, "    \"average_monthly\": %.2f,\n", avg_net);
+      fprintf(out, "    \"months_used\": %d\n", net_count);
       fprintf(out, "  },\n");
       fprintf(out, "  \"recent_months\": [\n");
       for (size_t i = recent_start; i < months.count; i++) {
