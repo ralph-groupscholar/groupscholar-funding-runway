@@ -1,6 +1,3 @@
-# Ralph Progress Log
+# groupscholar-funding-runway progress
 
-## Iteration 38 (2026-02-08)
-- Added `--as-of` filtering and fixed leading/trailing whitespace trimming in CSV parsing.
-- Added sample transaction data plus a production-oriented Postgres loader script.
-- Wrote README and added Python requirements for database snapshot loading.
+- 2026-02-08: Added net trend analysis (recent vs prior 3-month average) to console + JSON output, and improved currency parsing/validation for cash inputs.

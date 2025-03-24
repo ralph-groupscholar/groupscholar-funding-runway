@@ -477,6 +477,24 @@ int main(int argc, char **argv) {
   double avg_burn = burn_count > 0 ? burn_total / burn_count : 0.0;
   double avg_net = net_count > 0 ? net_total / net_count : 0.0;
   double runway_months = avg_burn > 0 ? available_cash / avg_burn : 0.0;
+  size_t trend_window = 3;
+  size_t recent_start = months.count > trend_window ? months.count - trend_window : 0;
+  size_t recent_count = months.count - recent_start;
+  double recent_net_total = 0.0;
+  for (size_t i = recent_start; i < months.count; i++) {
+    recent_net_total += months.items[i].inflow - months.items[i].outflow;
+  }
+  double recent_avg_net = recent_count > 0 ? recent_net_total / (double)recent_count : 0.0;
+  size_t prior_end = recent_start;
+  size_t prior_start = prior_end > trend_window ? prior_end - trend_window : 0;
+  size_t prior_count = prior_end - prior_start;
+  double prior_net_total = 0.0;
+  for (size_t i = prior_start; i < prior_end; i++) {
+    prior_net_total += months.items[i].inflow - months.items[i].outflow;
+  }
+  double prior_avg_net = prior_count > 0 ? prior_net_total / (double)prior_count : 0.0;
+  double net_trend_delta = recent_avg_net - prior_avg_net;
+  double net_trend_abs = net_trend_delta < 0 ? -net_trend_delta : net_trend_delta;
 
   printf("Group Scholar Funding Runway\n");
   printf("Records: %zu | Months: %zu | Skipped: %zu\n", record_count, months.count, skipped);
@@ -485,11 +503,19 @@ int main(int argc, char **argv) {
   if (avg_burn > 0) {
     printf("Average monthly burn (negative net): $%.2f across %d months\n", avg_burn, burn_count);
     printf("Average monthly net: $%.2f across %d months\n", avg_net, net_count);
+    printf("Recent %zu-month average net: $%.2f\n", recent_count, recent_avg_net);
     printf("Estimated runway: %.1f months\n", runway_months);
   } else {
     printf("Average monthly burn: $0.00 (no negative net months)\n");
     printf("Average monthly net: $%.2f across %d months\n", avg_net, net_count);
+    printf("Recent %zu-month average net: $%.2f\n", recent_count, recent_avg_net);
     printf("Estimated runway: Not at risk based on current net flow\n");
+  }
+  if (prior_count > 0) {
+    printf("Prior %zu-month average net: $%.2f\n", prior_count, prior_avg_net);
+    printf("Net trend: %s $%.2f\n", net_trend_delta >= 0 ? "improving by" : "declining by", net_trend_abs);
+  } else {
+    printf("Net trend: Not enough history for comparison\n");
   }
   if (total_restricted > 0) {
     printf("Restricted outflow total: $%.2f\n", total_restricted);
@@ -539,6 +565,14 @@ int main(int argc, char **argv) {
       fprintf(out, "  \"net\": {\n");
       fprintf(out, "    \"average_monthly\": %.2f,\n", avg_net);
       fprintf(out, "    \"months_used\": %d\n", net_count);
+      fprintf(out, "  },\n");
+      fprintf(out, "  \"net_trend\": {\n");
+      fprintf(out, "    \"window_months\": %zu,\n", trend_window);
+      fprintf(out, "    \"recent_average\": %.2f,\n", recent_avg_net);
+      fprintf(out, "    \"recent_months\": %zu,\n", recent_count);
+      fprintf(out, "    \"prior_average\": %.2f,\n", prior_avg_net);
+      fprintf(out, "    \"prior_months\": %zu,\n", prior_count);
+      fprintf(out, "    \"delta\": %.2f\n", net_trend_delta);
       fprintf(out, "  },\n");
       fprintf(out, "  \"recent_months\": [\n");
       for (size_t i = recent_start; i < months.count; i++) {
