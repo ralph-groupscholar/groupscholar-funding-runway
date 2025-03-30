@@ -6,6 +6,10 @@ A focused CLI to estimate runway, burn, and cash posture from transaction CSVs. 
 - Flexible CSV parsing (date/amount/type/category/restricted headers)
 - Average burn calculation over a configurable window
 - Runway estimate based on available cash
+- Runway risk rating for quick escalation signals
+- Cash balance timeline with lowest-balance alert
+- Cash coverage + net volatility diagnostics
+- Category concentration (share of total outflow)
 - JSON report output for automation
 - Optional database loader script for production snapshots
 

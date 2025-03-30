@@ -32,14 +32,49 @@ def ensure_schema(engine, schema: str):
                     starting_cash NUMERIC(14,2) NOT NULL,
                     reserved_cash NUMERIC(14,2) NOT NULL,
                     available_cash NUMERIC(14,2) NOT NULL,
+                    ending_cash NUMERIC(14,2) NOT NULL,
+                    lowest_cash NUMERIC(14,2) NOT NULL,
+                    lowest_cash_month TEXT NOT NULL,
+                    deficit_months INTEGER NOT NULL,
                     avg_burn NUMERIC(14,2) NOT NULL,
                     burn_months INTEGER NOT NULL,
                     runway_months NUMERIC(14,2) NOT NULL,
-                    window_months INTEGER NOT NULL
+                    runway_risk TEXT NOT NULL,
+                    window_months INTEGER NOT NULL,
+                    avg_inflow NUMERIC(14,2) NOT NULL,
+                    avg_outflow NUMERIC(14,2) NOT NULL,
+                    avg_net NUMERIC(14,2) NOT NULL,
+                    net_volatility NUMERIC(14,2) NOT NULL,
+                    outflow_coverage_months NUMERIC(14,2) NOT NULL,
+                    restricted_outflow_total NUMERIC(14,2) NOT NULL,
+                    recent_avg_net NUMERIC(14,2) NOT NULL,
+                    prior_avg_net NUMERIC(14,2) NOT NULL,
+                    net_trend_delta NUMERIC(14,2) NOT NULL
                 )
                 """
             )
         )
+        conn.execute(
+            text(
+                f"""
+                ALTER TABLE {schema}.runway_snapshots
+                ADD COLUMN IF NOT EXISTS runway_risk TEXT NOT NULL DEFAULT 'not_at_risk'
+                """
+            )
+        )
+        conn.execute(text(f"ALTER TABLE {schema}.runway_snapshots ADD COLUMN IF NOT EXISTS ending_cash NUMERIC(14,2) NOT NULL DEFAULT 0"))
+        conn.execute(text(f"ALTER TABLE {schema}.runway_snapshots ADD COLUMN IF NOT EXISTS lowest_cash NUMERIC(14,2) NOT NULL DEFAULT 0"))
+        conn.execute(text(f"ALTER TABLE {schema}.runway_snapshots ADD COLUMN IF NOT EXISTS lowest_cash_month TEXT NOT NULL DEFAULT ''"))
+        conn.execute(text(f"ALTER TABLE {schema}.runway_snapshots ADD COLUMN IF NOT EXISTS deficit_months INTEGER NOT NULL DEFAULT 0"))
+        conn.execute(text(f"ALTER TABLE {schema}.runway_snapshots ADD COLUMN IF NOT EXISTS avg_inflow NUMERIC(14,2) NOT NULL DEFAULT 0"))
+        conn.execute(text(f"ALTER TABLE {schema}.runway_snapshots ADD COLUMN IF NOT EXISTS avg_outflow NUMERIC(14,2) NOT NULL DEFAULT 0"))
+        conn.execute(text(f"ALTER TABLE {schema}.runway_snapshots ADD COLUMN IF NOT EXISTS avg_net NUMERIC(14,2) NOT NULL DEFAULT 0"))
+        conn.execute(text(f"ALTER TABLE {schema}.runway_snapshots ADD COLUMN IF NOT EXISTS net_volatility NUMERIC(14,2) NOT NULL DEFAULT 0"))
+        conn.execute(text(f"ALTER TABLE {schema}.runway_snapshots ADD COLUMN IF NOT EXISTS outflow_coverage_months NUMERIC(14,2) NOT NULL DEFAULT 0"))
+        conn.execute(text(f"ALTER TABLE {schema}.runway_snapshots ADD COLUMN IF NOT EXISTS restricted_outflow_total NUMERIC(14,2) NOT NULL DEFAULT 0"))
+        conn.execute(text(f"ALTER TABLE {schema}.runway_snapshots ADD COLUMN IF NOT EXISTS recent_avg_net NUMERIC(14,2) NOT NULL DEFAULT 0"))
+        conn.execute(text(f"ALTER TABLE {schema}.runway_snapshots ADD COLUMN IF NOT EXISTS prior_avg_net NUMERIC(14,2) NOT NULL DEFAULT 0"))
+        conn.execute(text(f"ALTER TABLE {schema}.runway_snapshots ADD COLUMN IF NOT EXISTS net_trend_delta NUMERIC(14,2) NOT NULL DEFAULT 0"))
         conn.execute(
             text(
                 f"""
@@ -72,7 +107,12 @@ def insert_snapshot(engine, schema: str, payload: dict):
     created_at = datetime.now(timezone.utc)
     totals = payload.get("totals", {})
     cash = payload.get("cash", {})
+    cash_flow = payload.get("cash_flow", {})
     burn = payload.get("burn", {})
+    flows = payload.get("flows", {})
+    net = payload.get("net", {})
+    trend = payload.get("net_trend", {})
+    restricted = payload.get("restricted", {})
 
     with engine.begin() as conn:
         conn.execute(
@@ -82,12 +122,20 @@ def insert_snapshot(engine, schema: str, payload: dict):
                     id, created_at, as_of, records, months, skipped,
                     total_inflow, total_outflow, net,
                     starting_cash, reserved_cash, available_cash,
-                    avg_burn, burn_months, runway_months, window_months
+                    ending_cash, lowest_cash, lowest_cash_month, deficit_months,
+                    avg_burn, burn_months, runway_months, runway_risk, window_months,
+                    avg_inflow, avg_outflow, avg_net, net_volatility,
+                    outflow_coverage_months, restricted_outflow_total,
+                    recent_avg_net, prior_avg_net, net_trend_delta
                 ) VALUES (
                     :id, :created_at, :as_of, :records, :months, :skipped,
                     :total_inflow, :total_outflow, :net,
                     :starting_cash, :reserved_cash, :available_cash,
-                    :avg_burn, :burn_months, :runway_months, :window_months
+                    :ending_cash, :lowest_cash, :lowest_cash_month, :deficit_months,
+                    :avg_burn, :burn_months, :runway_months, :runway_risk, :window_months,
+                    :avg_inflow, :avg_outflow, :avg_net, :net_volatility,
+                    :outflow_coverage_months, :restricted_outflow_total,
+                    :recent_avg_net, :prior_avg_net, :net_trend_delta
                 )
                 """
             ),
@@ -104,10 +152,24 @@ def insert_snapshot(engine, schema: str, payload: dict):
                 "starting_cash": cash.get("starting", 0),
                 "reserved_cash": cash.get("reserved", 0),
                 "available_cash": cash.get("available", 0),
+                "ending_cash": cash_flow.get("ending_balance", 0),
+                "lowest_cash": cash_flow.get("lowest_balance", 0),
+                "lowest_cash_month": cash_flow.get("lowest_balance_month", ""),
+                "deficit_months": cash_flow.get("deficit_months", 0),
                 "avg_burn": burn.get("average_monthly", 0),
                 "burn_months": burn.get("months_used", 0),
                 "runway_months": burn.get("estimated_runway_months", 0),
+                "runway_risk": payload.get("runway_risk", "not_at_risk"),
                 "window_months": payload.get("window_months", 0),
+                "avg_inflow": flows.get("average_inflow", 0),
+                "avg_outflow": flows.get("average_outflow", 0),
+                "avg_net": net.get("average_monthly", 0),
+                "net_volatility": net.get("volatility", 0),
+                "outflow_coverage_months": flows.get("outflow_coverage_months", 0),
+                "restricted_outflow_total": restricted.get("outflow_total", 0),
+                "recent_avg_net": trend.get("recent_average", 0),
+                "prior_avg_net": trend.get("prior_average", 0),
+                "net_trend_delta": trend.get("delta", 0),
             },
         )
 

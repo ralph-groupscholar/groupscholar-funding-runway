@@ -2,6 +2,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <math.h>
+#include <math.h>
 
 #define MAX_LINE 2048
 #define MAX_FIELDS 16
@@ -455,6 +457,40 @@ int main(int argc, char **argv) {
   double available_cash = starting_cash - reserved_cash;
   if (available_cash < 0) available_cash = 0.0;
 
+  double *month_net = NULL;
+  double *month_balance = NULL;
+  double ending_cash = available_cash;
+  double lowest_balance = available_cash;
+  char lowest_balance_month[8] = "";
+  int deficit_months = 0;
+  if (months.count > 0) {
+    month_net = calloc(months.count, sizeof(double));
+    month_balance = calloc(months.count, sizeof(double));
+    if (!month_net || !month_balance) {
+      fprintf(stderr, "Memory allocation failed for balances.\n");
+      free(month_net);
+      free(month_balance);
+      free(months.items);
+      free(categories.items);
+      return 1;
+    }
+    double balance = available_cash;
+    for (size_t i = 0; i < months.count; i++) {
+      month_net[i] = months.items[i].inflow - months.items[i].outflow;
+      balance += month_net[i];
+      month_balance[i] = balance;
+      if (month_net[i] < 0) {
+        deficit_months++;
+      }
+      if (i == 0 || balance < lowest_balance) {
+        lowest_balance = balance;
+        strncpy(lowest_balance_month, months.items[i].month, sizeof(lowest_balance_month) - 1);
+        lowest_balance_month[7] = '\0';
+      }
+    }
+    ending_cash = month_balance[months.count - 1];
+  }
+
   size_t month_start = 0;
   if (window_months > 0 && months.count > (size_t)window_months) {
     month_start = months.count - (size_t)window_months;
@@ -463,10 +499,14 @@ int main(int argc, char **argv) {
   double burn_total = 0.0;
   int burn_count = 0;
   double net_total = 0.0;
+  double inflow_total = 0.0;
+  double outflow_total = 0.0;
   int net_count = 0;
   for (size_t i = month_start; i < months.count; i++) {
     double month_net = months.items[i].inflow - months.items[i].outflow;
     net_total += month_net;
+    inflow_total += months.items[i].inflow;
+    outflow_total += months.items[i].outflow;
     net_count++;
     if (month_net < 0) {
       burn_total += -month_net;
@@ -476,7 +516,31 @@ int main(int argc, char **argv) {
 
   double avg_burn = burn_count > 0 ? burn_total / burn_count : 0.0;
   double avg_net = net_count > 0 ? net_total / net_count : 0.0;
+  double avg_inflow = net_count > 0 ? inflow_total / net_count : 0.0;
+  double avg_outflow = net_count > 0 ? outflow_total / net_count : 0.0;
+  double outflow_coverage = avg_outflow > 0 ? available_cash / avg_outflow : 0.0;
+  double net_variance_sum = 0.0;
+  if (net_count > 0) {
+    for (size_t i = month_start; i < months.count; i++) {
+      double month_net = months.items[i].inflow - months.items[i].outflow;
+      double diff = month_net - avg_net;
+      net_variance_sum += diff * diff;
+    }
+  }
+  double net_volatility = net_count > 0 ? sqrt(net_variance_sum / net_count) : 0.0;
   double runway_months = avg_burn > 0 ? available_cash / avg_burn : 0.0;
+  const char *risk_level = "not_at_risk";
+  if (avg_burn > 0) {
+    if (runway_months < 3.0) {
+      risk_level = "critical";
+    } else if (runway_months < 6.0) {
+      risk_level = "high";
+    } else if (runway_months < 12.0) {
+      risk_level = "moderate";
+    } else {
+      risk_level = "stable";
+    }
+  }
   size_t trend_window = 3;
   size_t recent_start = months.count > trend_window ? months.count - trend_window : 0;
   size_t recent_count = months.count - recent_start;
@@ -494,22 +558,36 @@ int main(int argc, char **argv) {
   }
   double prior_avg_net = prior_count > 0 ? prior_net_total / (double)prior_count : 0.0;
   double net_trend_delta = recent_avg_net - prior_avg_net;
-  double net_trend_abs = net_trend_delta < 0 ? -net_trend_delta : net_trend_delta;
+  double net_trend_abs = fabs(net_trend_delta);
 
   printf("Group Scholar Funding Runway\n");
   printf("Records: %zu | Months: %zu | Skipped: %zu\n", record_count, months.count, skipped);
   printf("Totals: Inflow $%.2f | Outflow $%.2f | Net $%.2f\n", total_inflow, total_outflow, net);
   printf("Starting cash: $%.2f | Reserved cash: $%.2f | Available: $%.2f\n", starting_cash, reserved_cash, available_cash);
+  printf("Ending cash (as of last month): $%.2f\n", ending_cash);
+  if (months.count > 0) {
+    printf("Lowest cash balance: $%.2f (%s)\n", lowest_balance, lowest_balance_month);
+    printf("Deficit months: %d\n", deficit_months);
+  }
   if (avg_burn > 0) {
     printf("Average monthly burn (negative net): $%.2f across %d months\n", avg_burn, burn_count);
     printf("Average monthly net: $%.2f across %d months\n", avg_net, net_count);
+    printf("Average monthly inflow: $%.2f | Outflow: $%.2f\n", avg_inflow, avg_outflow);
+    printf("Net volatility (std dev): $%.2f\n", net_volatility);
     printf("Recent %zu-month average net: $%.2f\n", recent_count, recent_avg_net);
     printf("Estimated runway: %.1f months\n", runway_months);
+    printf("Runway risk: %s\n", risk_level);
   } else {
     printf("Average monthly burn: $0.00 (no negative net months)\n");
     printf("Average monthly net: $%.2f across %d months\n", avg_net, net_count);
+    printf("Average monthly inflow: $%.2f | Outflow: $%.2f\n", avg_inflow, avg_outflow);
+    printf("Net volatility (std dev): $%.2f\n", net_volatility);
     printf("Recent %zu-month average net: $%.2f\n", recent_count, recent_avg_net);
     printf("Estimated runway: Not at risk based on current net flow\n");
+    printf("Runway risk: %s\n", risk_level);
+  }
+  if (avg_outflow > 0) {
+    printf("Outflow coverage: %.1f months of average spend\n", outflow_coverage);
   }
   if (prior_count > 0) {
     printf("Prior %zu-month average net: $%.2f\n", prior_count, prior_avg_net);
@@ -522,17 +600,21 @@ int main(int argc, char **argv) {
   }
 
   printf("\nRecent months:\n");
-  size_t recent_start = months.count > 6 ? months.count - 6 : 0;
-  for (size_t i = recent_start; i < months.count; i++) {
-    double month_net = months.items[i].inflow - months.items[i].outflow;
-    printf("  %s | In $%.2f | Out $%.2f | Net $%.2f\n", months.items[i].month, months.items[i].inflow, months.items[i].outflow, month_net);
+  size_t recent_display_start = months.count > 6 ? months.count - 6 : 0;
+  for (size_t i = recent_display_start; i < months.count; i++) {
+    double month_net_value = month_net ? month_net[i] : months.items[i].inflow - months.items[i].outflow;
+    double month_balance_value = month_balance ? month_balance[i] : available_cash + month_net_value;
+    printf("  %s | In $%.2f | Out $%.2f | Net $%.2f | Bal $%.2f\n",
+           months.items[i].month, months.items[i].inflow, months.items[i].outflow, month_net_value, month_balance_value);
   }
 
   if (categories.count > 0) {
     printf("\nTop outflow categories:\n");
     size_t top = categories.count > 5 ? 5 : categories.count;
     for (size_t i = 0; i < top; i++) {
-      printf("  %s | $%.2f (%d items)\n", categories.items[i].name, categories.items[i].outflow, categories.items[i].count);
+      double share = total_outflow > 0 ? (categories.items[i].outflow / total_outflow) * 100.0 : 0.0;
+      printf("  %s | $%.2f (%d items, %.1f%% of outflow)\n",
+             categories.items[i].name, categories.items[i].outflow, categories.items[i].count, share);
     }
   }
 
@@ -555,16 +637,29 @@ int main(int argc, char **argv) {
       fprintf(out, "    \"reserved\": %.2f,\n", reserved_cash);
       fprintf(out, "    \"available\": %.2f\n", available_cash);
       fprintf(out, "  },\n");
+      fprintf(out, "  \"cash_flow\": {\n");
+      fprintf(out, "    \"ending_balance\": %.2f,\n", ending_cash);
+      fprintf(out, "    \"lowest_balance\": %.2f,\n", lowest_balance);
+      fprintf(out, "    \"lowest_balance_month\": \"%s\",\n", months.count > 0 ? lowest_balance_month : "");
+      fprintf(out, "    \"deficit_months\": %d\n", deficit_months);
+      fprintf(out, "  },\n");
       fprintf(out, "  \"as_of\": \"%s\",\n", as_of[0] ? as_of : "");
       fprintf(out, "  \"window_months\": %d,\n", window_months);
+      fprintf(out, "  \"runway_risk\": \"%s\",\n", risk_level);
       fprintf(out, "  \"burn\": {\n");
       fprintf(out, "    \"average_monthly\": %.2f,\n", avg_burn);
       fprintf(out, "    \"months_used\": %d,\n", burn_count);
       fprintf(out, "    \"estimated_runway_months\": %.2f\n", runway_months);
       fprintf(out, "  },\n");
+      fprintf(out, "  \"flows\": {\n");
+      fprintf(out, "    \"average_inflow\": %.2f,\n", avg_inflow);
+      fprintf(out, "    \"average_outflow\": %.2f,\n", avg_outflow);
+      fprintf(out, "    \"outflow_coverage_months\": %.2f\n", outflow_coverage);
+      fprintf(out, "  },\n");
       fprintf(out, "  \"net\": {\n");
       fprintf(out, "    \"average_monthly\": %.2f,\n", avg_net);
-      fprintf(out, "    \"months_used\": %d\n", net_count);
+      fprintf(out, "    \"months_used\": %d,\n", net_count);
+      fprintf(out, "    \"volatility\": %.2f\n", net_volatility);
       fprintf(out, "  },\n");
       fprintf(out, "  \"net_trend\": {\n");
       fprintf(out, "    \"window_months\": %zu,\n", trend_window);
@@ -574,19 +669,32 @@ int main(int argc, char **argv) {
       fprintf(out, "    \"prior_months\": %zu,\n", prior_count);
       fprintf(out, "    \"delta\": %.2f\n", net_trend_delta);
       fprintf(out, "  },\n");
+      fprintf(out, "  \"restricted\": {\n");
+      fprintf(out, "    \"outflow_total\": %.2f\n", total_restricted);
+      fprintf(out, "  },\n");
       fprintf(out, "  \"recent_months\": [\n");
       for (size_t i = recent_start; i < months.count; i++) {
-        double month_net = months.items[i].inflow - months.items[i].outflow;
+        double month_net_value = month_net ? month_net[i] : months.items[i].inflow - months.items[i].outflow;
         fprintf(out, "    {\"month\": \"%s\", \"inflow\": %.2f, \"outflow\": %.2f, \"net\": %.2f}%s\n",
-                months.items[i].month, months.items[i].inflow, months.items[i].outflow, month_net,
+                months.items[i].month, months.items[i].inflow, months.items[i].outflow, month_net_value,
                 i + 1 < months.count ? "," : "");
+      }
+      fprintf(out, "  ],\n");
+      fprintf(out, "  \"month_balances\": [\n");
+      for (size_t i = 0; i < months.count; i++) {
+        double month_net_value = month_net ? month_net[i] : months.items[i].inflow - months.items[i].outflow;
+        double month_balance_value = month_balance ? month_balance[i] : available_cash + month_net_value;
+        fprintf(out, "    {\"month\": \"%s\", \"inflow\": %.2f, \"outflow\": %.2f, \"net\": %.2f, \"balance\": %.2f}%s\n",
+                months.items[i].month, months.items[i].inflow, months.items[i].outflow,
+                month_net_value, month_balance_value, i + 1 < months.count ? "," : "");
       }
       fprintf(out, "  ],\n");
       fprintf(out, "  \"top_categories\": [\n");
       size_t top = categories.count > 5 ? 5 : categories.count;
       for (size_t i = 0; i < top; i++) {
-        fprintf(out, "    {\"category\": \"%s\", \"outflow\": %.2f, \"count\": %d}%s\n",
-                categories.items[i].name, categories.items[i].outflow, categories.items[i].count,
+        double share = total_outflow > 0 ? (categories.items[i].outflow / total_outflow) * 100.0 : 0.0;
+        fprintf(out, "    {\"category\": \"%s\", \"outflow\": %.2f, \"count\": %d, \"share_of_outflow\": %.2f}%s\n",
+                categories.items[i].name, categories.items[i].outflow, categories.items[i].count, share,
                 i + 1 < top ? "," : "");
       }
       fprintf(out, "  ]\n");
@@ -598,5 +706,7 @@ int main(int argc, char **argv) {
 
   free(months.items);
   free(categories.items);
+  free(month_net);
+  free(month_balance);
   return 0;
 }
