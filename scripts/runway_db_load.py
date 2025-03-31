@@ -35,6 +35,10 @@ def ensure_schema(engine, schema: str):
                     ending_cash NUMERIC(14,2) NOT NULL,
                     lowest_cash NUMERIC(14,2) NOT NULL,
                     lowest_cash_month TEXT NOT NULL,
+                    peak_inflow NUMERIC(14,2) NOT NULL,
+                    peak_inflow_month TEXT NOT NULL,
+                    peak_outflow NUMERIC(14,2) NOT NULL,
+                    peak_outflow_month TEXT NOT NULL,
                     deficit_months INTEGER NOT NULL,
                     avg_burn NUMERIC(14,2) NOT NULL,
                     burn_months INTEGER NOT NULL,
@@ -65,6 +69,10 @@ def ensure_schema(engine, schema: str):
         conn.execute(text(f"ALTER TABLE {schema}.runway_snapshots ADD COLUMN IF NOT EXISTS ending_cash NUMERIC(14,2) NOT NULL DEFAULT 0"))
         conn.execute(text(f"ALTER TABLE {schema}.runway_snapshots ADD COLUMN IF NOT EXISTS lowest_cash NUMERIC(14,2) NOT NULL DEFAULT 0"))
         conn.execute(text(f"ALTER TABLE {schema}.runway_snapshots ADD COLUMN IF NOT EXISTS lowest_cash_month TEXT NOT NULL DEFAULT ''"))
+        conn.execute(text(f"ALTER TABLE {schema}.runway_snapshots ADD COLUMN IF NOT EXISTS peak_inflow NUMERIC(14,2) NOT NULL DEFAULT 0"))
+        conn.execute(text(f"ALTER TABLE {schema}.runway_snapshots ADD COLUMN IF NOT EXISTS peak_inflow_month TEXT NOT NULL DEFAULT ''"))
+        conn.execute(text(f"ALTER TABLE {schema}.runway_snapshots ADD COLUMN IF NOT EXISTS peak_outflow NUMERIC(14,2) NOT NULL DEFAULT 0"))
+        conn.execute(text(f"ALTER TABLE {schema}.runway_snapshots ADD COLUMN IF NOT EXISTS peak_outflow_month TEXT NOT NULL DEFAULT ''"))
         conn.execute(text(f"ALTER TABLE {schema}.runway_snapshots ADD COLUMN IF NOT EXISTS deficit_months INTEGER NOT NULL DEFAULT 0"))
         conn.execute(text(f"ALTER TABLE {schema}.runway_snapshots ADD COLUMN IF NOT EXISTS avg_inflow NUMERIC(14,2) NOT NULL DEFAULT 0"))
         conn.execute(text(f"ALTER TABLE {schema}.runway_snapshots ADD COLUMN IF NOT EXISTS avg_outflow NUMERIC(14,2) NOT NULL DEFAULT 0"))
@@ -100,6 +108,18 @@ def ensure_schema(engine, schema: str):
                 """
             )
         )
+        conn.execute(
+            text(
+                f"""
+                CREATE TABLE IF NOT EXISTS {schema}.runway_top_inflow_categories (
+                    snapshot_id TEXT NOT NULL,
+                    category TEXT NOT NULL,
+                    inflow NUMERIC(14,2) NOT NULL,
+                    count INTEGER NOT NULL
+                )
+                """
+            )
+        )
 
 
 def insert_snapshot(engine, schema: str, payload: dict):
@@ -122,7 +142,9 @@ def insert_snapshot(engine, schema: str, payload: dict):
                     id, created_at, as_of, records, months, skipped,
                     total_inflow, total_outflow, net,
                     starting_cash, reserved_cash, available_cash,
-                    ending_cash, lowest_cash, lowest_cash_month, deficit_months,
+                    ending_cash, lowest_cash, lowest_cash_month,
+                    peak_inflow, peak_inflow_month, peak_outflow, peak_outflow_month,
+                    deficit_months,
                     avg_burn, burn_months, runway_months, runway_risk, window_months,
                     avg_inflow, avg_outflow, avg_net, net_volatility,
                     outflow_coverage_months, restricted_outflow_total,
@@ -131,7 +153,9 @@ def insert_snapshot(engine, schema: str, payload: dict):
                     :id, :created_at, :as_of, :records, :months, :skipped,
                     :total_inflow, :total_outflow, :net,
                     :starting_cash, :reserved_cash, :available_cash,
-                    :ending_cash, :lowest_cash, :lowest_cash_month, :deficit_months,
+                    :ending_cash, :lowest_cash, :lowest_cash_month,
+                    :peak_inflow, :peak_inflow_month, :peak_outflow, :peak_outflow_month,
+                    :deficit_months,
                     :avg_burn, :burn_months, :runway_months, :runway_risk, :window_months,
                     :avg_inflow, :avg_outflow, :avg_net, :net_volatility,
                     :outflow_coverage_months, :restricted_outflow_total,
@@ -155,6 +179,10 @@ def insert_snapshot(engine, schema: str, payload: dict):
                 "ending_cash": cash_flow.get("ending_balance", 0),
                 "lowest_cash": cash_flow.get("lowest_balance", 0),
                 "lowest_cash_month": cash_flow.get("lowest_balance_month", ""),
+                "peak_inflow": cash_flow.get("peak_inflow", 0),
+                "peak_inflow_month": cash_flow.get("peak_inflow_month", ""),
+                "peak_outflow": cash_flow.get("peak_outflow", 0),
+                "peak_outflow_month": cash_flow.get("peak_outflow_month", ""),
                 "deficit_months": cash_flow.get("deficit_months", 0),
                 "avg_burn": burn.get("average_monthly", 0),
                 "burn_months": burn.get("months_used", 0),
@@ -208,6 +236,25 @@ def insert_snapshot(engine, schema: str, payload: dict):
                     "snapshot_id": snapshot_id,
                     "category": category.get("category"),
                     "outflow": category.get("outflow", 0),
+                    "count": category.get("count", 0),
+                },
+            )
+
+        for category in payload.get("top_inflow_categories", []):
+            conn.execute(
+                text(
+                    f"""
+                    INSERT INTO {schema}.runway_top_inflow_categories (
+                        snapshot_id, category, inflow, count
+                    ) VALUES (
+                        :snapshot_id, :category, :inflow, :count
+                    )
+                    """
+                ),
+                {
+                    "snapshot_id": snapshot_id,
+                    "category": category.get("category"),
+                    "inflow": category.get("inflow", 0),
                     "count": category.get("count", 0),
                 },
             )

@@ -3,7 +3,6 @@
 #include <string.h>
 #include <ctype.h>
 #include <math.h>
-#include <math.h>
 
 #define MAX_LINE 2048
 #define MAX_FIELDS 16
@@ -353,6 +352,7 @@ int main(int argc, char **argv) {
 
   MonthList months = {0};
   CategoryList categories = {0};
+  CategoryList inflow_categories = {0};
 
   size_t record_count = 0;
   size_t skipped = 0;
@@ -438,6 +438,7 @@ int main(int argc, char **argv) {
     if (is_inflow) {
       total_inflow += amount;
       month_list_add(&months, month, amount, 0.0);
+      category_list_add(&inflow_categories, category[0] ? category : "Uncategorized", amount);
     } else {
       total_outflow += amount;
       month_list_add(&months, month, 0.0, amount);
@@ -452,6 +453,7 @@ int main(int argc, char **argv) {
 
   qsort(months.items, months.count, sizeof(MonthStat), compare_months);
   qsort(categories.items, categories.count, sizeof(CategoryStat), compare_categories);
+  qsort(inflow_categories.items, inflow_categories.count, sizeof(CategoryStat), compare_categories);
 
   double net = total_inflow - total_outflow;
   double available_cash = starting_cash - reserved_cash;
@@ -462,6 +464,10 @@ int main(int argc, char **argv) {
   double ending_cash = available_cash;
   double lowest_balance = available_cash;
   char lowest_balance_month[8] = "";
+  double peak_inflow = 0.0;
+  double peak_outflow = 0.0;
+  char peak_inflow_month[8] = "";
+  char peak_outflow_month[8] = "";
   int deficit_months = 0;
   if (months.count > 0) {
     month_net = calloc(months.count, sizeof(double));
@@ -486,6 +492,16 @@ int main(int argc, char **argv) {
         lowest_balance = balance;
         strncpy(lowest_balance_month, months.items[i].month, sizeof(lowest_balance_month) - 1);
         lowest_balance_month[7] = '\0';
+      }
+      if (i == 0 || months.items[i].inflow > peak_inflow) {
+        peak_inflow = months.items[i].inflow;
+        strncpy(peak_inflow_month, months.items[i].month, sizeof(peak_inflow_month) - 1);
+        peak_inflow_month[7] = '\0';
+      }
+      if (i == 0 || months.items[i].outflow > peak_outflow) {
+        peak_outflow = months.items[i].outflow;
+        strncpy(peak_outflow_month, months.items[i].month, sizeof(peak_outflow_month) - 1);
+        peak_outflow_month[7] = '\0';
       }
     }
     ending_cash = month_balance[months.count - 1];
@@ -567,6 +583,8 @@ int main(int argc, char **argv) {
   printf("Ending cash (as of last month): $%.2f\n", ending_cash);
   if (months.count > 0) {
     printf("Lowest cash balance: $%.2f (%s)\n", lowest_balance, lowest_balance_month);
+    printf("Peak inflow month: %s ($%.2f)\n", peak_inflow_month, peak_inflow);
+    printf("Peak outflow month: %s ($%.2f)\n", peak_outflow_month, peak_outflow);
     printf("Deficit months: %d\n", deficit_months);
   }
   if (avg_burn > 0) {
@@ -617,6 +635,16 @@ int main(int argc, char **argv) {
              categories.items[i].name, categories.items[i].outflow, categories.items[i].count, share);
     }
   }
+  if (inflow_categories.count > 0) {
+    printf("\nTop inflow categories:\n");
+    size_t top = inflow_categories.count > 5 ? 5 : inflow_categories.count;
+    for (size_t i = 0; i < top; i++) {
+      double share = total_inflow > 0 ? (inflow_categories.items[i].outflow / total_inflow) * 100.0 : 0.0;
+      printf("  %s | $%.2f (%d items, %.1f%% of inflow)\n",
+             inflow_categories.items[i].name, inflow_categories.items[i].outflow,
+             inflow_categories.items[i].count, share);
+    }
+  }
 
   if (json_path) {
     FILE *out = fopen(json_path, "w");
@@ -641,6 +669,10 @@ int main(int argc, char **argv) {
       fprintf(out, "    \"ending_balance\": %.2f,\n", ending_cash);
       fprintf(out, "    \"lowest_balance\": %.2f,\n", lowest_balance);
       fprintf(out, "    \"lowest_balance_month\": \"%s\",\n", months.count > 0 ? lowest_balance_month : "");
+      fprintf(out, "    \"peak_inflow\": %.2f,\n", peak_inflow);
+      fprintf(out, "    \"peak_inflow_month\": \"%s\",\n", months.count > 0 ? peak_inflow_month : "");
+      fprintf(out, "    \"peak_outflow\": %.2f,\n", peak_outflow);
+      fprintf(out, "    \"peak_outflow_month\": \"%s\",\n", months.count > 0 ? peak_outflow_month : "");
       fprintf(out, "    \"deficit_months\": %d\n", deficit_months);
       fprintf(out, "  },\n");
       fprintf(out, "  \"as_of\": \"%s\",\n", as_of[0] ? as_of : "");
@@ -697,6 +729,16 @@ int main(int argc, char **argv) {
                 categories.items[i].name, categories.items[i].outflow, categories.items[i].count, share,
                 i + 1 < top ? "," : "");
       }
+      fprintf(out, "  ],\n");
+      fprintf(out, "  \"top_inflow_categories\": [\n");
+      size_t inflow_top = inflow_categories.count > 5 ? 5 : inflow_categories.count;
+      for (size_t i = 0; i < inflow_top; i++) {
+        double share = total_inflow > 0 ? (inflow_categories.items[i].outflow / total_inflow) * 100.0 : 0.0;
+        fprintf(out, "    {\"category\": \"%s\", \"inflow\": %.2f, \"count\": %d, \"share_of_inflow\": %.2f}%s\n",
+                inflow_categories.items[i].name, inflow_categories.items[i].outflow,
+                inflow_categories.items[i].count, share,
+                i + 1 < inflow_top ? "," : "");
+      }
       fprintf(out, "  ]\n");
       fprintf(out, "}\n");
       fclose(out);
@@ -708,5 +750,6 @@ int main(int argc, char **argv) {
   free(categories.items);
   free(month_net);
   free(month_balance);
+  free(inflow_categories.items);
   return 0;
 }
