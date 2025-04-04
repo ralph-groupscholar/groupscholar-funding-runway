@@ -464,6 +464,9 @@ int main(int argc, char **argv) {
   double ending_cash = available_cash;
   double lowest_balance = available_cash;
   char lowest_balance_month[8] = "";
+  int depletion_index = -1;
+  double depletion_balance = 0.0;
+  char depletion_month[8] = "";
   double peak_inflow = 0.0;
   double peak_outflow = 0.0;
   char peak_inflow_month[8] = "";
@@ -492,6 +495,12 @@ int main(int argc, char **argv) {
         lowest_balance = balance;
         strncpy(lowest_balance_month, months.items[i].month, sizeof(lowest_balance_month) - 1);
         lowest_balance_month[7] = '\0';
+      }
+      if (depletion_index == -1 && balance <= 0.0) {
+        depletion_index = (int)i;
+        depletion_balance = balance;
+        strncpy(depletion_month, months.items[i].month, sizeof(depletion_month) - 1);
+        depletion_month[7] = '\0';
       }
       if (i == 0 || months.items[i].inflow > peak_inflow) {
         peak_inflow = months.items[i].inflow;
@@ -535,6 +544,18 @@ int main(int argc, char **argv) {
   double avg_inflow = net_count > 0 ? inflow_total / net_count : 0.0;
   double avg_outflow = net_count > 0 ? outflow_total / net_count : 0.0;
   double outflow_coverage = avg_outflow > 0 ? available_cash / avg_outflow : 0.0;
+  double breakeven_gap = 0.0;
+  double breakeven_inflow_pct = 0.0;
+  double breakeven_outflow_pct = 0.0;
+  if (avg_outflow > avg_inflow) {
+    breakeven_gap = avg_outflow - avg_inflow;
+    if (avg_inflow > 0) {
+      breakeven_inflow_pct = (breakeven_gap / avg_inflow) * 100.0;
+    }
+    if (avg_outflow > 0) {
+      breakeven_outflow_pct = (breakeven_gap / avg_outflow) * 100.0;
+    }
+  }
   double net_variance_sum = 0.0;
   if (net_count > 0) {
     for (size_t i = month_start; i < months.count; i++) {
@@ -583,6 +604,12 @@ int main(int argc, char **argv) {
   printf("Ending cash (as of last month): $%.2f\n", ending_cash);
   if (months.count > 0) {
     printf("Lowest cash balance: $%.2f (%s)\n", lowest_balance, lowest_balance_month);
+    if (depletion_index >= 0) {
+      printf("Cash depletion month: %s (month %d, balance $%.2f)\n",
+             depletion_month, depletion_index + 1, depletion_balance);
+    } else {
+      printf("Cash depletion month: None within observed period\n");
+    }
     printf("Peak inflow month: %s ($%.2f)\n", peak_inflow_month, peak_inflow);
     printf("Peak outflow month: %s ($%.2f)\n", peak_outflow_month, peak_outflow);
     printf("Deficit months: %d\n", deficit_months);
@@ -591,6 +618,12 @@ int main(int argc, char **argv) {
     printf("Average monthly burn (negative net): $%.2f across %d months\n", avg_burn, burn_count);
     printf("Average monthly net: $%.2f across %d months\n", avg_net, net_count);
     printf("Average monthly inflow: $%.2f | Outflow: $%.2f\n", avg_inflow, avg_outflow);
+    if (breakeven_gap > 0) {
+      printf("Breakeven gap: $%.2f (lift inflow %.1f%% or cut outflow %.1f%%)\n",
+             breakeven_gap, breakeven_inflow_pct, breakeven_outflow_pct);
+    } else {
+      printf("Breakeven gap: $0.00 (already net-positive on average)\n");
+    }
     printf("Net volatility (std dev): $%.2f\n", net_volatility);
     printf("Recent %zu-month average net: $%.2f\n", recent_count, recent_avg_net);
     printf("Estimated runway: %.1f months\n", runway_months);
@@ -599,6 +632,12 @@ int main(int argc, char **argv) {
     printf("Average monthly burn: $0.00 (no negative net months)\n");
     printf("Average monthly net: $%.2f across %d months\n", avg_net, net_count);
     printf("Average monthly inflow: $%.2f | Outflow: $%.2f\n", avg_inflow, avg_outflow);
+    if (breakeven_gap > 0) {
+      printf("Breakeven gap: $%.2f (lift inflow %.1f%% or cut outflow %.1f%%)\n",
+             breakeven_gap, breakeven_inflow_pct, breakeven_outflow_pct);
+    } else {
+      printf("Breakeven gap: $0.00 (already net-positive on average)\n");
+    }
     printf("Net volatility (std dev): $%.2f\n", net_volatility);
     printf("Recent %zu-month average net: $%.2f\n", recent_count, recent_avg_net);
     printf("Estimated runway: Not at risk based on current net flow\n");
@@ -669,6 +708,9 @@ int main(int argc, char **argv) {
       fprintf(out, "    \"ending_balance\": %.2f,\n", ending_cash);
       fprintf(out, "    \"lowest_balance\": %.2f,\n", lowest_balance);
       fprintf(out, "    \"lowest_balance_month\": \"%s\",\n", months.count > 0 ? lowest_balance_month : "");
+      fprintf(out, "    \"depletion_balance\": %.2f,\n", depletion_index >= 0 ? depletion_balance : 0.0);
+      fprintf(out, "    \"depletion_month\": \"%s\",\n", depletion_index >= 0 ? depletion_month : "");
+      fprintf(out, "    \"depletion_month_index\": %d,\n", depletion_index >= 0 ? depletion_index + 1 : 0);
       fprintf(out, "    \"peak_inflow\": %.2f,\n", peak_inflow);
       fprintf(out, "    \"peak_inflow_month\": \"%s\",\n", months.count > 0 ? peak_inflow_month : "");
       fprintf(out, "    \"peak_outflow\": %.2f,\n", peak_outflow);
@@ -687,6 +729,11 @@ int main(int argc, char **argv) {
       fprintf(out, "    \"average_inflow\": %.2f,\n", avg_inflow);
       fprintf(out, "    \"average_outflow\": %.2f,\n", avg_outflow);
       fprintf(out, "    \"outflow_coverage_months\": %.2f\n", outflow_coverage);
+      fprintf(out, "  },\n");
+      fprintf(out, "  \"breakeven\": {\n");
+      fprintf(out, "    \"gap\": %.2f,\n", breakeven_gap);
+      fprintf(out, "    \"inflow_lift_pct\": %.2f,\n", breakeven_inflow_pct);
+      fprintf(out, "    \"outflow_cut_pct\": %.2f\n", breakeven_outflow_pct);
       fprintf(out, "  },\n");
       fprintf(out, "  \"net\": {\n");
       fprintf(out, "    \"average_monthly\": %.2f,\n", avg_net);

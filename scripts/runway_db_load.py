@@ -35,6 +35,9 @@ def ensure_schema(engine, schema: str):
                     ending_cash NUMERIC(14,2) NOT NULL,
                     lowest_cash NUMERIC(14,2) NOT NULL,
                     lowest_cash_month TEXT NOT NULL,
+                    depletion_balance NUMERIC(14,2) NOT NULL,
+                    depletion_month TEXT NOT NULL,
+                    depletion_month_index INTEGER NOT NULL,
                     peak_inflow NUMERIC(14,2) NOT NULL,
                     peak_inflow_month TEXT NOT NULL,
                     peak_outflow NUMERIC(14,2) NOT NULL,
@@ -53,7 +56,10 @@ def ensure_schema(engine, schema: str):
                     restricted_outflow_total NUMERIC(14,2) NOT NULL,
                     recent_avg_net NUMERIC(14,2) NOT NULL,
                     prior_avg_net NUMERIC(14,2) NOT NULL,
-                    net_trend_delta NUMERIC(14,2) NOT NULL
+                    net_trend_delta NUMERIC(14,2) NOT NULL,
+                    breakeven_gap NUMERIC(14,2) NOT NULL,
+                    breakeven_inflow_pct NUMERIC(14,2) NOT NULL,
+                    breakeven_outflow_pct NUMERIC(14,2) NOT NULL
                 )
                 """
             )
@@ -69,6 +75,9 @@ def ensure_schema(engine, schema: str):
         conn.execute(text(f"ALTER TABLE {schema}.runway_snapshots ADD COLUMN IF NOT EXISTS ending_cash NUMERIC(14,2) NOT NULL DEFAULT 0"))
         conn.execute(text(f"ALTER TABLE {schema}.runway_snapshots ADD COLUMN IF NOT EXISTS lowest_cash NUMERIC(14,2) NOT NULL DEFAULT 0"))
         conn.execute(text(f"ALTER TABLE {schema}.runway_snapshots ADD COLUMN IF NOT EXISTS lowest_cash_month TEXT NOT NULL DEFAULT ''"))
+        conn.execute(text(f"ALTER TABLE {schema}.runway_snapshots ADD COLUMN IF NOT EXISTS depletion_balance NUMERIC(14,2) NOT NULL DEFAULT 0"))
+        conn.execute(text(f"ALTER TABLE {schema}.runway_snapshots ADD COLUMN IF NOT EXISTS depletion_month TEXT NOT NULL DEFAULT ''"))
+        conn.execute(text(f"ALTER TABLE {schema}.runway_snapshots ADD COLUMN IF NOT EXISTS depletion_month_index INTEGER NOT NULL DEFAULT 0"))
         conn.execute(text(f"ALTER TABLE {schema}.runway_snapshots ADD COLUMN IF NOT EXISTS peak_inflow NUMERIC(14,2) NOT NULL DEFAULT 0"))
         conn.execute(text(f"ALTER TABLE {schema}.runway_snapshots ADD COLUMN IF NOT EXISTS peak_inflow_month TEXT NOT NULL DEFAULT ''"))
         conn.execute(text(f"ALTER TABLE {schema}.runway_snapshots ADD COLUMN IF NOT EXISTS peak_outflow NUMERIC(14,2) NOT NULL DEFAULT 0"))
@@ -83,6 +92,9 @@ def ensure_schema(engine, schema: str):
         conn.execute(text(f"ALTER TABLE {schema}.runway_snapshots ADD COLUMN IF NOT EXISTS recent_avg_net NUMERIC(14,2) NOT NULL DEFAULT 0"))
         conn.execute(text(f"ALTER TABLE {schema}.runway_snapshots ADD COLUMN IF NOT EXISTS prior_avg_net NUMERIC(14,2) NOT NULL DEFAULT 0"))
         conn.execute(text(f"ALTER TABLE {schema}.runway_snapshots ADD COLUMN IF NOT EXISTS net_trend_delta NUMERIC(14,2) NOT NULL DEFAULT 0"))
+        conn.execute(text(f"ALTER TABLE {schema}.runway_snapshots ADD COLUMN IF NOT EXISTS breakeven_gap NUMERIC(14,2) NOT NULL DEFAULT 0"))
+        conn.execute(text(f"ALTER TABLE {schema}.runway_snapshots ADD COLUMN IF NOT EXISTS breakeven_inflow_pct NUMERIC(14,2) NOT NULL DEFAULT 0"))
+        conn.execute(text(f"ALTER TABLE {schema}.runway_snapshots ADD COLUMN IF NOT EXISTS breakeven_outflow_pct NUMERIC(14,2) NOT NULL DEFAULT 0"))
         conn.execute(
             text(
                 f"""
@@ -133,6 +145,7 @@ def insert_snapshot(engine, schema: str, payload: dict):
     net = payload.get("net", {})
     trend = payload.get("net_trend", {})
     restricted = payload.get("restricted", {})
+    breakeven = payload.get("breakeven", {})
 
     with engine.begin() as conn:
         conn.execute(
@@ -143,23 +156,27 @@ def insert_snapshot(engine, schema: str, payload: dict):
                     total_inflow, total_outflow, net,
                     starting_cash, reserved_cash, available_cash,
                     ending_cash, lowest_cash, lowest_cash_month,
+                    depletion_balance, depletion_month, depletion_month_index,
                     peak_inflow, peak_inflow_month, peak_outflow, peak_outflow_month,
                     deficit_months,
                     avg_burn, burn_months, runway_months, runway_risk, window_months,
                     avg_inflow, avg_outflow, avg_net, net_volatility,
                     outflow_coverage_months, restricted_outflow_total,
-                    recent_avg_net, prior_avg_net, net_trend_delta
+                    recent_avg_net, prior_avg_net, net_trend_delta,
+                    breakeven_gap, breakeven_inflow_pct, breakeven_outflow_pct
                 ) VALUES (
                     :id, :created_at, :as_of, :records, :months, :skipped,
                     :total_inflow, :total_outflow, :net,
                     :starting_cash, :reserved_cash, :available_cash,
                     :ending_cash, :lowest_cash, :lowest_cash_month,
+                    :depletion_balance, :depletion_month, :depletion_month_index,
                     :peak_inflow, :peak_inflow_month, :peak_outflow, :peak_outflow_month,
                     :deficit_months,
                     :avg_burn, :burn_months, :runway_months, :runway_risk, :window_months,
                     :avg_inflow, :avg_outflow, :avg_net, :net_volatility,
                     :outflow_coverage_months, :restricted_outflow_total,
-                    :recent_avg_net, :prior_avg_net, :net_trend_delta
+                    :recent_avg_net, :prior_avg_net, :net_trend_delta,
+                    :breakeven_gap, :breakeven_inflow_pct, :breakeven_outflow_pct
                 )
                 """
             ),
@@ -179,6 +196,9 @@ def insert_snapshot(engine, schema: str, payload: dict):
                 "ending_cash": cash_flow.get("ending_balance", 0),
                 "lowest_cash": cash_flow.get("lowest_balance", 0),
                 "lowest_cash_month": cash_flow.get("lowest_balance_month", ""),
+                "depletion_balance": cash_flow.get("depletion_balance", 0),
+                "depletion_month": cash_flow.get("depletion_month", ""),
+                "depletion_month_index": cash_flow.get("depletion_month_index", 0),
                 "peak_inflow": cash_flow.get("peak_inflow", 0),
                 "peak_inflow_month": cash_flow.get("peak_inflow_month", ""),
                 "peak_outflow": cash_flow.get("peak_outflow", 0),
@@ -198,6 +218,9 @@ def insert_snapshot(engine, schema: str, payload: dict):
                 "recent_avg_net": trend.get("recent_average", 0),
                 "prior_avg_net": trend.get("prior_average", 0),
                 "net_trend_delta": trend.get("delta", 0),
+                "breakeven_gap": breakeven.get("gap", 0),
+                "breakeven_inflow_pct": breakeven.get("inflow_lift_pct", 0),
+                "breakeven_outflow_pct": breakeven.get("outflow_cut_pct", 0),
             },
         )
 

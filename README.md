@@ -8,8 +8,10 @@ A focused CLI to estimate runway, burn, and cash posture from transaction CSVs. 
 - Runway estimate based on available cash
 - Runway risk rating for quick escalation signals
 - Cash balance timeline with lowest-balance alert
+- Cash depletion month detection when balances cross zero
 - Peak inflow/outflow month detection
 - Cash coverage + net volatility diagnostics
+- Breakeven gap (inflow lift or outflow cut needed to reach net-zero)
 - Category concentration (share of inflow/outflow)
 - JSON report output for automation
 - Optional database loader script for production snapshots
@@ -30,6 +32,12 @@ Filter by an "as of" month:
 
 ```sh
 ./funding-runway --file samples/runway_sample.csv --starting-cash 450000 --reserved-cash 60000 --window 6 --as-of 2025-12
+```
+
+## Tests
+
+```sh
+python3 scripts/test_runway.py
 ```
 
 ## Database loader (production use)
