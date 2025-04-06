@@ -39,6 +39,9 @@ def main():
     assert "depletion_month" in cash_flow
     assert "depletion_balance" in cash_flow
     assert "depletion_month_index" in cash_flow
+    assert payload.get("net_extremes", {}).get("best_month") is not None
+    assert payload.get("deficit_streak", {}).get("longest_months") is not None
+    assert payload.get("net_swing", {}).get("largest_abs") is not None
     assert payload.get("totals", {}).get("inflow") is not None
     assert payload.get("runway_risk")
     print("ok")

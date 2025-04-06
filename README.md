@@ -10,6 +10,7 @@ A focused CLI to estimate runway, burn, and cash posture from transaction CSVs. 
 - Cash balance timeline with lowest-balance alert
 - Cash depletion month detection when balances cross zero
 - Peak inflow/outflow month detection
+- Best/worst net month, deficit streaks, and net swing alerts
 - Cash coverage + net volatility diagnostics
 - Breakeven gap (inflow lift or outflow cut needed to reach net-zero)
 - Category concentration (share of inflow/outflow)

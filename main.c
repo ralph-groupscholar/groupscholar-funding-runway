@@ -41,6 +41,12 @@ typedef struct {
   size_t cap;
 } CategoryList;
 
+typedef struct {
+  const char *name;
+  double inflow_adj;
+  double outflow_adj;
+} Scenario;
+
 static void trim(char *s) {
   char *start = s;
   while (isspace((unsigned char)*start)) start++;
@@ -217,6 +223,19 @@ static int compare_categories(const void *a, const void *b) {
   if (cb->outflow > ca->outflow) return 1;
   if (cb->outflow < ca->outflow) return -1;
   return 0;
+}
+
+static const char *risk_from_runway(double runway_months) {
+  if (runway_months < 3.0) {
+    return "critical";
+  }
+  if (runway_months < 6.0) {
+    return "high";
+  }
+  if (runway_months < 12.0) {
+    return "moderate";
+  }
+  return "stable";
 }
 
 static void print_usage() {
@@ -472,6 +491,13 @@ int main(int argc, char **argv) {
   char peak_inflow_month[8] = "";
   char peak_outflow_month[8] = "";
   int deficit_months = 0;
+  double best_net = 0.0;
+  double worst_net = 0.0;
+  char best_net_month[8] = "";
+  char worst_net_month[8] = "";
+  int longest_deficit_streak = 0;
+  char longest_deficit_start[8] = "";
+  char longest_deficit_end[8] = "";
   if (months.count > 0) {
     month_net = calloc(months.count, sizeof(double));
     month_balance = calloc(months.count, sizeof(double));
@@ -484,12 +510,39 @@ int main(int argc, char **argv) {
       return 1;
     }
     double balance = available_cash;
+    int current_deficit_streak = 0;
+    char current_deficit_start[8] = "";
     for (size_t i = 0; i < months.count; i++) {
       month_net[i] = months.items[i].inflow - months.items[i].outflow;
       balance += month_net[i];
       month_balance[i] = balance;
+      if (i == 0 || month_net[i] > best_net) {
+        best_net = month_net[i];
+        strncpy(best_net_month, months.items[i].month, sizeof(best_net_month) - 1);
+        best_net_month[7] = '\0';
+      }
+      if (i == 0 || month_net[i] < worst_net) {
+        worst_net = month_net[i];
+        strncpy(worst_net_month, months.items[i].month, sizeof(worst_net_month) - 1);
+        worst_net_month[7] = '\0';
+      }
       if (month_net[i] < 0) {
         deficit_months++;
+        if (current_deficit_streak == 0) {
+          strncpy(current_deficit_start, months.items[i].month, sizeof(current_deficit_start) - 1);
+          current_deficit_start[7] = '\0';
+        }
+        current_deficit_streak++;
+        if (current_deficit_streak > longest_deficit_streak) {
+          longest_deficit_streak = current_deficit_streak;
+          strncpy(longest_deficit_start, current_deficit_start, sizeof(longest_deficit_start) - 1);
+          longest_deficit_start[7] = '\0';
+          strncpy(longest_deficit_end, months.items[i].month, sizeof(longest_deficit_end) - 1);
+          longest_deficit_end[7] = '\0';
+        }
+      } else {
+        current_deficit_streak = 0;
+        current_deficit_start[0] = '\0';
       }
       if (i == 0 || balance < lowest_balance) {
         lowest_balance = balance;
@@ -514,6 +567,22 @@ int main(int argc, char **argv) {
       }
     }
     ending_cash = month_balance[months.count - 1];
+  }
+
+  double largest_net_swing_abs = 0.0;
+  double largest_net_swing_delta = 0.0;
+  char largest_net_swing_month[8] = "";
+  if (months.count > 1 && month_net) {
+    for (size_t i = 1; i < months.count; i++) {
+      double delta = month_net[i] - month_net[i - 1];
+      double delta_abs = fabs(delta);
+      if (delta_abs > largest_net_swing_abs) {
+        largest_net_swing_abs = delta_abs;
+        largest_net_swing_delta = delta;
+        strncpy(largest_net_swing_month, months.items[i].month, sizeof(largest_net_swing_month) - 1);
+        largest_net_swing_month[7] = '\0';
+      }
+    }
   }
 
   size_t month_start = 0;
@@ -568,16 +637,19 @@ int main(int argc, char **argv) {
   double runway_months = avg_burn > 0 ? available_cash / avg_burn : 0.0;
   const char *risk_level = "not_at_risk";
   if (avg_burn > 0) {
-    if (runway_months < 3.0) {
-      risk_level = "critical";
-    } else if (runway_months < 6.0) {
-      risk_level = "high";
-    } else if (runway_months < 12.0) {
-      risk_level = "moderate";
-    } else {
-      risk_level = "stable";
-    }
+    risk_level = risk_from_runway(runway_months);
   }
+  double target_runway_months = 12.0;
+  double target_cash = avg_burn > 0 ? avg_burn * target_runway_months : 0.0;
+  double funding_gap = target_cash > available_cash ? target_cash - available_cash : 0.0;
+  Scenario scenarios[] = {
+      {"baseline_avg", 0.0, 0.0},
+      {"inflow_up_10", 0.10, 0.0},
+      {"inflow_down_10", -0.10, 0.0},
+      {"outflow_up_10", 0.0, 0.10},
+      {"outflow_down_10", 0.0, -0.10},
+  };
+  size_t scenario_count = sizeof(scenarios) / sizeof(scenarios[0]);
   size_t trend_window = 3;
   size_t recent_start = months.count > trend_window ? months.count - trend_window : 0;
   size_t recent_count = months.count - recent_start;
@@ -613,6 +685,18 @@ int main(int argc, char **argv) {
     printf("Peak inflow month: %s ($%.2f)\n", peak_inflow_month, peak_inflow);
     printf("Peak outflow month: %s ($%.2f)\n", peak_outflow_month, peak_outflow);
     printf("Deficit months: %d\n", deficit_months);
+    printf("Best net month: %s ($%.2f)\n", best_net_month, best_net);
+    printf("Worst net month: %s ($%.2f)\n", worst_net_month, worst_net);
+    if (longest_deficit_streak > 0) {
+      printf("Longest deficit streak: %d months (%s to %s)\n",
+             longest_deficit_streak, longest_deficit_start, longest_deficit_end);
+    } else {
+      printf("Longest deficit streak: 0 months\n");
+    }
+    if (largest_net_swing_abs > 0) {
+      printf("Largest net swing: $%.2f (%s, delta $%.2f)\n",
+             largest_net_swing_abs, largest_net_swing_month, largest_net_swing_delta);
+    }
   }
   if (avg_burn > 0) {
     printf("Average monthly burn (negative net): $%.2f across %d months\n", avg_burn, burn_count);
@@ -643,6 +727,12 @@ int main(int argc, char **argv) {
     printf("Estimated runway: Not at risk based on current net flow\n");
     printf("Runway risk: %s\n", risk_level);
   }
+  if (avg_burn > 0) {
+    printf("Target runway: %.0f months | Target cash: $%.2f | Funding gap: $%.2f\n",
+           target_runway_months, target_cash, funding_gap);
+  } else {
+    printf("Target runway: %.0f months | Target cash: $0.00 | Funding gap: $0.00\n", target_runway_months);
+  }
   if (avg_outflow > 0) {
     printf("Outflow coverage: %.1f months of average spend\n", outflow_coverage);
   }
@@ -654,6 +744,22 @@ int main(int argc, char **argv) {
   }
   if (total_restricted > 0) {
     printf("Restricted outflow total: $%.2f\n", total_restricted);
+  }
+
+  printf("\nRunway scenarios (avg flows):\n");
+  for (size_t i = 0; i < scenario_count; i++) {
+    double scenario_inflow = avg_inflow * (1.0 + scenarios[i].inflow_adj);
+    double scenario_outflow = avg_outflow * (1.0 + scenarios[i].outflow_adj);
+    double scenario_net = scenario_inflow - scenario_outflow;
+    double scenario_runway = scenario_net < 0 ? available_cash / (-scenario_net) : 0.0;
+    const char *scenario_risk = scenario_net < 0 ? risk_from_runway(scenario_runway) : "not_at_risk";
+    if (scenario_net < 0) {
+      printf("  %s | Net $%.2f | Runway %.1f months | Risk %s\n",
+             scenarios[i].name, scenario_net, scenario_runway, scenario_risk);
+    } else {
+      printf("  %s | Net $%.2f | Runway not at risk | Risk %s\n",
+             scenarios[i].name, scenario_net, scenario_risk);
+    }
   }
 
   printf("\nRecent months:\n");
@@ -717,6 +823,22 @@ int main(int argc, char **argv) {
       fprintf(out, "    \"peak_outflow_month\": \"%s\",\n", months.count > 0 ? peak_outflow_month : "");
       fprintf(out, "    \"deficit_months\": %d\n", deficit_months);
       fprintf(out, "  },\n");
+      fprintf(out, "  \"net_extremes\": {\n");
+      fprintf(out, "    \"best_month\": \"%s\",\n", months.count > 0 ? best_net_month : "");
+      fprintf(out, "    \"best_value\": %.2f,\n", best_net);
+      fprintf(out, "    \"worst_month\": \"%s\",\n", months.count > 0 ? worst_net_month : "");
+      fprintf(out, "    \"worst_value\": %.2f\n", worst_net);
+      fprintf(out, "  },\n");
+      fprintf(out, "  \"deficit_streak\": {\n");
+      fprintf(out, "    \"longest_months\": %d,\n", longest_deficit_streak);
+      fprintf(out, "    \"start_month\": \"%s\",\n", longest_deficit_streak > 0 ? longest_deficit_start : "");
+      fprintf(out, "    \"end_month\": \"%s\"\n", longest_deficit_streak > 0 ? longest_deficit_end : "");
+      fprintf(out, "  },\n");
+      fprintf(out, "  \"net_swing\": {\n");
+      fprintf(out, "    \"largest_abs\": %.2f,\n", largest_net_swing_abs);
+      fprintf(out, "    \"largest_delta\": %.2f,\n", largest_net_swing_delta);
+      fprintf(out, "    \"largest_month\": \"%s\"\n", largest_net_swing_month);
+      fprintf(out, "  },\n");
       fprintf(out, "  \"as_of\": \"%s\",\n", as_of[0] ? as_of : "");
       fprintf(out, "  \"window_months\": %d,\n", window_months);
       fprintf(out, "  \"runway_risk\": \"%s\",\n", risk_level);
@@ -739,6 +861,11 @@ int main(int argc, char **argv) {
       fprintf(out, "    \"average_monthly\": %.2f,\n", avg_net);
       fprintf(out, "    \"months_used\": %d,\n", net_count);
       fprintf(out, "    \"volatility\": %.2f\n", net_volatility);
+      fprintf(out, "  },\n");
+      fprintf(out, "  \"targets\": {\n");
+      fprintf(out, "    \"runway_months\": %.2f,\n", target_runway_months);
+      fprintf(out, "    \"target_cash\": %.2f,\n", target_cash);
+      fprintf(out, "    \"funding_gap\": %.2f\n", funding_gap);
       fprintf(out, "  },\n");
       fprintf(out, "  \"net_trend\": {\n");
       fprintf(out, "    \"window_months\": %zu,\n", trend_window);
@@ -785,6 +912,21 @@ int main(int argc, char **argv) {
                 inflow_categories.items[i].name, inflow_categories.items[i].outflow,
                 inflow_categories.items[i].count, share,
                 i + 1 < inflow_top ? "," : "");
+      }
+      fprintf(out, "  ],\n");
+      fprintf(out, "  \"scenarios\": [\n");
+      for (size_t i = 0; i < scenario_count; i++) {
+        double scenario_inflow = avg_inflow * (1.0 + scenarios[i].inflow_adj);
+        double scenario_outflow = avg_outflow * (1.0 + scenarios[i].outflow_adj);
+        double scenario_net = scenario_inflow - scenario_outflow;
+        double scenario_runway = scenario_net < 0 ? available_cash / (-scenario_net) : 0.0;
+        const char *scenario_risk = scenario_net < 0 ? risk_from_runway(scenario_runway) : "not_at_risk";
+        fprintf(out,
+                "    {\"name\": \"%s\", \"inflow_adj_pct\": %.1f, \"outflow_adj_pct\": %.1f, \"projected_net\": %.2f, "
+                "\"projected_runway_months\": %.2f, \"risk\": \"%s\"}%s\n",
+                scenarios[i].name, scenarios[i].inflow_adj * 100.0, scenarios[i].outflow_adj * 100.0,
+                scenario_net, scenario_runway, scenario_risk,
+                i + 1 < scenario_count ? "," : "");
       }
       fprintf(out, "  ]\n");
       fprintf(out, "}\n");

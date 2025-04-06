@@ -1,6 +1,7 @@
 # groupscholar-funding-runway progress
 
 - 2026-02-08: Added breakeven gap diagnostics (inflow lift/outflow cut) to console + JSON output, extended DB schema for breakeven metrics, and seeded production with a fresh snapshot.
+- 2026-02-08: Added net extremes, deficit streak, and net swing analytics to CLI/JSON, expanded the DB loader schema, and seeded production with a fresh snapshot.
 - 2026-02-08: Added runway risk rating to console and JSON output, extended the DB loader schema to store risk, and seeded production with a fresh snapshot.
 - 2026-02-08: Added net trend analysis (recent vs prior 3-month average) to console + JSON output, and improved currency parsing/validation for cash inputs.
 
