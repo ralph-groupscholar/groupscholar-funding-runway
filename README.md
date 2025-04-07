@@ -14,6 +14,7 @@ A focused CLI to estimate runway, burn, and cash posture from transaction CSVs. 
 - Cash coverage + net volatility diagnostics
 - Breakeven gap (inflow lift or outflow cut needed to reach net-zero)
 - Category concentration (share of inflow/outflow)
+- Inflow/outflow concentration index (HHI) and top-category share
 - JSON report output for automation
 - Optional database loader script for production snapshots
 

@@ -478,6 +478,29 @@ int main(int argc, char **argv) {
   double available_cash = starting_cash - reserved_cash;
   if (available_cash < 0) available_cash = 0.0;
 
+  double inflow_hhi = 0.0;
+  double outflow_hhi = 0.0;
+  double top_inflow_share = 0.0;
+  double top_outflow_share = 0.0;
+  if (total_inflow > 0 && inflow_categories.count > 0) {
+    for (size_t i = 0; i < inflow_categories.count; i++) {
+      double share = inflow_categories.items[i].outflow / total_inflow;
+      inflow_hhi += share * share;
+      if (share > top_inflow_share) {
+        top_inflow_share = share;
+      }
+    }
+  }
+  if (total_outflow > 0 && categories.count > 0) {
+    for (size_t i = 0; i < categories.count; i++) {
+      double share = categories.items[i].outflow / total_outflow;
+      outflow_hhi += share * share;
+      if (share > top_outflow_share) {
+        top_outflow_share = share;
+      }
+    }
+  }
+
   double *month_net = NULL;
   double *month_balance = NULL;
   double ending_cash = available_cash;
@@ -745,6 +768,12 @@ int main(int argc, char **argv) {
   if (total_restricted > 0) {
     printf("Restricted outflow total: $%.2f\n", total_restricted);
   }
+  if (total_inflow > 0 || total_outflow > 0) {
+    printf("Inflow concentration (HHI): %.3f | Top inflow share: %.1f%%\n",
+           inflow_hhi, top_inflow_share * 100.0);
+    printf("Outflow concentration (HHI): %.3f | Top outflow share: %.1f%%\n",
+           outflow_hhi, top_outflow_share * 100.0);
+  }
 
   printf("\nRunway scenarios (avg flows):\n");
   for (size_t i = 0; i < scenario_count; i++) {
@@ -877,6 +906,12 @@ int main(int argc, char **argv) {
       fprintf(out, "  },\n");
       fprintf(out, "  \"restricted\": {\n");
       fprintf(out, "    \"outflow_total\": %.2f\n", total_restricted);
+      fprintf(out, "  },\n");
+      fprintf(out, "  \"concentration\": {\n");
+      fprintf(out, "    \"inflow_hhi\": %.4f,\n", inflow_hhi);
+      fprintf(out, "    \"outflow_hhi\": %.4f,\n", outflow_hhi);
+      fprintf(out, "    \"top_inflow_share_pct\": %.2f,\n", top_inflow_share * 100.0);
+      fprintf(out, "    \"top_outflow_share_pct\": %.2f\n", top_outflow_share * 100.0);
       fprintf(out, "  },\n");
       fprintf(out, "  \"recent_months\": [\n");
       for (size_t i = recent_start; i < months.count; i++) {

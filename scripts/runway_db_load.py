@@ -72,7 +72,11 @@ def ensure_schema(engine, schema: str):
                     breakeven_outflow_pct NUMERIC(14,2) NOT NULL,
                     target_runway_months NUMERIC(6,2) NOT NULL,
                     target_cash NUMERIC(14,2) NOT NULL,
-                    funding_gap NUMERIC(14,2) NOT NULL
+                    funding_gap NUMERIC(14,2) NOT NULL,
+                    inflow_hhi NUMERIC(8,6) NOT NULL,
+                    outflow_hhi NUMERIC(8,6) NOT NULL,
+                    top_inflow_share_pct NUMERIC(6,2) NOT NULL,
+                    top_outflow_share_pct NUMERIC(6,2) NOT NULL
                 )
                 """
             )
@@ -121,6 +125,10 @@ def ensure_schema(engine, schema: str):
         conn.execute(text(f"ALTER TABLE {schema}.runway_snapshots ADD COLUMN IF NOT EXISTS target_runway_months NUMERIC(6,2) NOT NULL DEFAULT 0"))
         conn.execute(text(f"ALTER TABLE {schema}.runway_snapshots ADD COLUMN IF NOT EXISTS target_cash NUMERIC(14,2) NOT NULL DEFAULT 0"))
         conn.execute(text(f"ALTER TABLE {schema}.runway_snapshots ADD COLUMN IF NOT EXISTS funding_gap NUMERIC(14,2) NOT NULL DEFAULT 0"))
+        conn.execute(text(f"ALTER TABLE {schema}.runway_snapshots ADD COLUMN IF NOT EXISTS inflow_hhi NUMERIC(8,6) NOT NULL DEFAULT 0"))
+        conn.execute(text(f"ALTER TABLE {schema}.runway_snapshots ADD COLUMN IF NOT EXISTS outflow_hhi NUMERIC(8,6) NOT NULL DEFAULT 0"))
+        conn.execute(text(f"ALTER TABLE {schema}.runway_snapshots ADD COLUMN IF NOT EXISTS top_inflow_share_pct NUMERIC(6,2) NOT NULL DEFAULT 0"))
+        conn.execute(text(f"ALTER TABLE {schema}.runway_snapshots ADD COLUMN IF NOT EXISTS top_outflow_share_pct NUMERIC(6,2) NOT NULL DEFAULT 0"))
         conn.execute(
             text(
                 f"""
@@ -188,6 +196,7 @@ def insert_snapshot(engine, schema: str, payload: dict):
     restricted = payload.get("restricted", {})
     breakeven = payload.get("breakeven", {})
     targets = payload.get("targets", {})
+    concentration = payload.get("concentration", {})
 
     with engine.begin() as conn:
         conn.execute(
@@ -209,7 +218,8 @@ def insert_snapshot(engine, schema: str, payload: dict):
                     outflow_coverage_months, restricted_outflow_total,
                     recent_avg_net, prior_avg_net, net_trend_delta,
                     breakeven_gap, breakeven_inflow_pct, breakeven_outflow_pct,
-                    target_runway_months, target_cash, funding_gap
+                    target_runway_months, target_cash, funding_gap,
+                    inflow_hhi, outflow_hhi, top_inflow_share_pct, top_outflow_share_pct
                 ) VALUES (
                     :id, :created_at, :as_of, :records, :months, :skipped,
                     :total_inflow, :total_outflow, :net,
@@ -226,7 +236,8 @@ def insert_snapshot(engine, schema: str, payload: dict):
                     :outflow_coverage_months, :restricted_outflow_total,
                     :recent_avg_net, :prior_avg_net, :net_trend_delta,
                     :breakeven_gap, :breakeven_inflow_pct, :breakeven_outflow_pct,
-                    :target_runway_months, :target_cash, :funding_gap
+                    :target_runway_months, :target_cash, :funding_gap,
+                    :inflow_hhi, :outflow_hhi, :top_inflow_share_pct, :top_outflow_share_pct
                 )
                 """
             ),
@@ -284,6 +295,10 @@ def insert_snapshot(engine, schema: str, payload: dict):
                 "target_runway_months": targets.get("runway_months", 0),
                 "target_cash": targets.get("target_cash", 0),
                 "funding_gap": targets.get("funding_gap", 0),
+                "inflow_hhi": concentration.get("inflow_hhi", 0),
+                "outflow_hhi": concentration.get("outflow_hhi", 0),
+                "top_inflow_share_pct": concentration.get("top_inflow_share_pct", 0),
+                "top_outflow_share_pct": concentration.get("top_outflow_share_pct", 0),
             },
         )
 

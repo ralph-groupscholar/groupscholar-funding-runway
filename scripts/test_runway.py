@@ -44,6 +44,11 @@ def main():
     assert payload.get("net_swing", {}).get("largest_abs") is not None
     assert payload.get("totals", {}).get("inflow") is not None
     assert payload.get("runway_risk")
+    concentration = payload.get("concentration", {})
+    assert "inflow_hhi" in concentration
+    assert "outflow_hhi" in concentration
+    assert "top_inflow_share_pct" in concentration
+    assert "top_outflow_share_pct" in concentration
     print("ok")
 
 
